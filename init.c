@@ -68,7 +68,7 @@
 
 /* Global variables */
 extern char **environ;      /* defined in libc */
-char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
+char prompt[] = "# ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
@@ -204,7 +204,7 @@ void eval(char *cmdline)
 {
     char *argv[MAXPIPES][MAXARGS];
     char *buf, *buf2;
-    int bg;
+    int bg = 0;
     pid_t pid;
     sigset_t mask;
     int proc_state;
@@ -366,7 +366,8 @@ int builtin_cmd(char **argv)
     }
     if (!strcmp(argv[0], "cd")) {
         if (argv[1])
-            chdir(argv[1]);
+            if (chdir(argv[1]) < 0)
+                unix_error("cd failed");
         return 1;
     }
     if (!strcmp(argv[0], "pwd")) {
@@ -436,60 +437,57 @@ void do_unset(char **argv) {
  */
 void do_bgfg(char **argv)
 {
-    if (argv[1] == NULL) {
-        printf("bg/fg command requires additional argument (PID/ JID)\n");
-        return;
-    }
-
     pid_t pid;
     int jid;
     struct job_t *job;
     int state;
 
-    state = (!strcmp(argv[1], "bg")) ? BG : FG;
-
+ 	state = (!strcmp(argv[0], "bg")) ? BG : FG; 
+    if (argv[1] == NULL) {
+    	if (state == BG) printf("bg command requires PID or %%jobid argument\n");
+		else printf("fg command requires PID or %%jobid argument\n");
+    	return;
+    }   
+    
     if (*argv[1] == '%') {
-        // the argument is a JID
-        jid = atoi(argv[1] + 1);	// do not include '%'
-        if (jid <= 0) {
-            printf("illegal argument!\n");
-            return;
-        }
-        job = getjobjid(jobs, jid);
-        if (job == NULL) {
-            printf("job doesn't exist!\n");
-            return;
-        }
-        pid = job->pid;
+    	// the argument is a JID
+    	jid = atoi(argv[1] + 1);	// do not include '%'
+    	if (jid <= 0) {
+    		printf("fg: argument must be a PID or %%jobid\n");
+    		return;
+    	}
+    	job = getjobjid(jobs, jid);
+    	if (job == NULL) {
+    		printf("No such job\n");
+    		return;
+    	}
+    	pid = job->pid;
     }
     else {
-        pid = atoi(argv[1]);
-        if (pid <= 0) {
-            printf("illegal argument!\n");
-            return;
-        }
-        job = getjobpid(jobs, pid);
-        if (job == NULL) {
-            printf("job doesn't exist!\n");
-            return;
-        }
+    	pid = atoi(argv[1]);
+    	if (pid <= 0) {
+    		printf("fg: argument must be a PID or %%jobid\n");
+    		return;
+    	}
+    	job = getjobpid(jobs, pid);
+    	if (job == NULL) {
+    		printf("(%d): No such process\n", pid);
+    		return;
+    	}
+    }
+
+    if (kill(-pid, SIGCONT) < 0) {
+    	unix_error("failed to send SIGCONT to job");
+    	return;
     }
 
     if (state == BG) {
-        if (kill(-pid, SIGCONT) < 0) {
-            unix_error("failed to send SIGCONT to job");
-            return;
-        }
-        job->state = BG;
-        printf("[%d] (%d) %s\n", job->jid, pid, job->cmdline);
+		job->state = BG;
+		printf("[%d] (%d) %s", job->jid, pid, job->cmdline);
     }
     else {
-        if (kill(-pid, SIGCONT) < 0) {
-            unix_error("failed to send SIGCONT to job");
-            return;
-        }
-        job->state = FG;
-        waitfg(pid);
+    	job->state = FG;
+    	waitfg(pid);
     }
 }
 
