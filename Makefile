@@ -1,5 +1,5 @@
 init: init.c
-	gcc -o init init.c
+	gcc -Wall -O2 -o init init.c
 
 clean:
 	rm -f *.o
